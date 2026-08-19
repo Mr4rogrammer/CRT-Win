@@ -1,6 +1,8 @@
 """'More Options' dialog: auto-refresh interval, timeframe, reject threshold,
 and the destructive Reset App action - moved out of the main toolbar to keep
 it clean and focused on Symbol/Add/Refresh."""
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -32,7 +34,7 @@ class OptionsDialog(QDialog):
     ):
         super().__init__(parent)
         self.setWindowTitle("More Options")
-        self.setMinimumWidth(380)
+        self._position_as_right_drawer()
 
         layout = QVBoxLayout(self)
 
@@ -86,3 +88,26 @@ class OptionsDialog(QDialog):
         buttons.rejected.connect(self.accept)
         buttons.button(QDialogButtonBox.Close).clicked.connect(self.accept)
         layout.addWidget(buttons)
+
+    def _position_as_right_drawer(self):
+        """Make this dialog behave like a right-side navigation drawer:
+        full window height, ~25% of the parent/screen width, docked to the
+        right edge."""
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "frameGeometry"):
+            screen_geo = parent.frameGeometry()
+        else:
+            screen = QGuiApplication.primaryScreen()
+            screen_geo = screen.availableGeometry() if screen else None
+
+        if screen_geo is None:
+            self.resize(380, 640)
+            return
+
+        width = max(320, int(screen_geo.width() * 0.25))
+        height = screen_geo.height()
+        x = screen_geo.x() + screen_geo.width() - width
+        y = screen_geo.y()
+
+        self.setGeometry(x, y, width, height)
+        self.setMinimumWidth(300)

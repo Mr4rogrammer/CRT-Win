@@ -370,16 +370,20 @@ class MainWindow(QMainWindow):
     def _on_auto_refresh_toggled(self, checked: bool):
         self.db.set_setting("auto_refresh_enabled", "1" if checked else "0")
         self._apply_timer_state()
+        self.refresh_signals()
 
     def _on_interval_changed(self, value: int):
         self.db.set_setting("refresh_interval_minutes", str(value))
         self._apply_timer_state()
+        self.refresh_signals()
 
     def _on_threshold_changed(self, value: int):
         self.db.set_setting("threshold_pct", str(value))
+        self.refresh_signals()
 
     def _on_timeframe_changed(self, value: str):
         self.db.set_setting("timeframe", value)
+        self.refresh_signals()
 
     def _on_reset_app(self, dialog=None):
         confirm = QMessageBox.question(
