@@ -14,9 +14,6 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QHeaderView,
-    QCheckBox,
-    QSpinBox,
-    QComboBox,
     QTabWidget,
     QMessageBox,
     QAbstractItemView,
@@ -30,6 +27,7 @@ from ..engine import analyze_symbols
 from ..mt5_connector import MT5Connector, MT5_AVAILABLE, TIMEFRAME_MAP
 from .symbol_picker import SymbolPickerDialog
 from .signal_card import SignalCard, SIGNAL_SORT_PRIORITY
+from .options_dialog import OptionsDialog
 
 SIGNAL_COLORS = {
     "BUY": QColor("#3ddc84"),
@@ -179,36 +177,8 @@ class MainWindow(QMainWindow):
         self.refresh_btn.setObjectName("primaryButton")
         self.refresh_btn.clicked.connect(self.refresh_signals)
 
-        self.auto_refresh_checkbox = QCheckBox("Auto-refresh every")
-        auto_enabled = self.db.get_setting("auto_refresh_enabled", "1") == "1"
-        self.auto_refresh_checkbox.setChecked(auto_enabled)
-        self.auto_refresh_checkbox.stateChanged.connect(self._on_auto_refresh_toggled)
-
-        self.interval_spin = QSpinBox()
-        self.interval_spin.setRange(1, 120)
-        self.interval_spin.setValue(int(self.db.get_setting("refresh_interval_minutes", "5")))
-        self.interval_spin.setSuffix(" min")
-        self.interval_spin.valueChanged.connect(self._on_interval_changed)
-
-        self.threshold_spin = QSpinBox()
-        self.threshold_spin.setRange(1, 99)
-        self.threshold_spin.setValue(int(self.db.get_setting("threshold_pct", "50")))
-        self.threshold_spin.setSuffix("%")
-        self.threshold_spin.setToolTip(
-            "How far into C1's range (from the swept side) C2 must stay compressed. "
-            "50% = midpoint. Lower = stricter, higher = more lenient."
-        )
-        self.threshold_spin.valueChanged.connect(self._on_threshold_changed)
-
-        self.timeframe_combo = QComboBox()
-        self.timeframe_combo.addItems(list(TIMEFRAME_MAP.keys()))
-        saved_timeframe = self.db.get_setting("timeframe", "D1")
-        if saved_timeframe in TIMEFRAME_MAP:
-            self.timeframe_combo.setCurrentText(saved_timeframe)
-        self.timeframe_combo.setToolTip(
-            "Candle timeframe used for C1/C2/C3 (e.g. D1 = daily, H4 = 4-hour, H1 = 1-hour)."
-        )
-        self.timeframe_combo.currentTextChanged.connect(self._on_timeframe_changed)
+        self.options_btn = QPushButton("\u2699 More Options")
+        self.options_btn.clicked.connect(self._on_open_options)
 
         top_bar.addWidget(QLabel("Symbol:"))
         top_bar.addWidget(self.symbol_input)
@@ -216,24 +186,8 @@ class MainWindow(QMainWindow):
         top_bar.addWidget(browse_btn)
         top_bar.addSpacing(20)
         top_bar.addWidget(self.refresh_btn)
-        top_bar.addSpacing(20)
-        top_bar.addWidget(self.auto_refresh_checkbox)
-        top_bar.addWidget(self.interval_spin)
-        top_bar.addSpacing(20)
-        top_bar.addWidget(QLabel("Timeframe:"))
-        top_bar.addWidget(self.timeframe_combo)
-        top_bar.addSpacing(20)
-        top_bar.addWidget(QLabel("Reject Threshold:"))
-        top_bar.addWidget(self.threshold_spin)
         top_bar.addStretch()
-
-        self.reset_app_btn = QPushButton("Reset App")
-        self.reset_app_btn.setObjectName("dangerButton")
-        self.reset_app_btn.setToolTip(
-            "Deletes ALL local data: watched pairs, settings, and signal history. Cannot be undone."
-        )
-        self.reset_app_btn.clicked.connect(self._on_reset_app)
-        top_bar.addWidget(self.reset_app_btn)
+        top_bar.addWidget(self.options_btn)
 
         root.addLayout(top_bar)
 
@@ -311,8 +265,9 @@ class MainWindow(QMainWindow):
         self._apply_timer_state()
 
     def _apply_timer_state(self):
-        if self.auto_refresh_checkbox.isChecked():
-            self.timer.start(self.interval_spin.value() * 60 * 1000)
+        if self.db.get_setting("auto_refresh_enabled", "1") == "1":
+            interval_min = int(self.db.get_setting("refresh_interval_minutes", "5"))
+            self.timer.start(interval_min * 60 * 1000)
         else:
             self.timer.stop()
 
@@ -393,9 +348,27 @@ class MainWindow(QMainWindow):
         self.db.remove_pair(symbol)
         self._load_symbols_into_table()
 
-    # ---------------------------------------------------------- Settings
-    def _on_auto_refresh_toggled(self, _state):
-        self.db.set_setting("auto_refresh_enabled", "1" if self.auto_refresh_checkbox.isChecked() else "0")
+    # ---------------------------------------------------------- Settings / Options dialog
+    def _on_open_options(self):
+        dialog = OptionsDialog(
+            auto_refresh_checked=self.db.get_setting("auto_refresh_enabled", "1") == "1",
+            interval_minutes=int(self.db.get_setting("refresh_interval_minutes", "5")),
+            threshold_pct=int(self.db.get_setting("threshold_pct", "50")),
+            timeframe=self.db.get_setting("timeframe", "D1"),
+            timeframe_choices=list(TIMEFRAME_MAP.keys()),
+            parent=self,
+        )
+        dialog.auto_refresh_checkbox.stateChanged.connect(
+            lambda _s: self._on_auto_refresh_toggled(dialog.auto_refresh_checkbox.isChecked())
+        )
+        dialog.interval_spin.valueChanged.connect(self._on_interval_changed)
+        dialog.threshold_spin.valueChanged.connect(self._on_threshold_changed)
+        dialog.timeframe_combo.currentTextChanged.connect(self._on_timeframe_changed)
+        dialog.reset_app_btn.clicked.connect(lambda: self._on_reset_app(dialog))
+        dialog.exec()
+
+    def _on_auto_refresh_toggled(self, checked: bool):
+        self.db.set_setting("auto_refresh_enabled", "1" if checked else "0")
         self._apply_timer_state()
 
     def _on_interval_changed(self, value: int):
@@ -408,9 +381,9 @@ class MainWindow(QMainWindow):
     def _on_timeframe_changed(self, value: str):
         self.db.set_setting("timeframe", value)
 
-    def _on_reset_app(self):
+    def _on_reset_app(self, dialog=None):
         confirm = QMessageBox.question(
-            self,
+            dialog or self,
             "Reset App?",
             "This will permanently delete ALL local data:\n\n"
             "  - Watched pairs\n"
@@ -430,27 +403,28 @@ class MainWindow(QMainWindow):
         self._load_symbols_into_table()
         self._load_history_into_table()
 
-        self.auto_refresh_checkbox.blockSignals(True)
-        self.auto_refresh_checkbox.setChecked(self.db.get_setting("auto_refresh_enabled", "1") == "1")
-        self.auto_refresh_checkbox.blockSignals(False)
+        if dialog is not None:
+            dialog.auto_refresh_checkbox.blockSignals(True)
+            dialog.auto_refresh_checkbox.setChecked(self.db.get_setting("auto_refresh_enabled", "1") == "1")
+            dialog.auto_refresh_checkbox.blockSignals(False)
 
-        self.interval_spin.blockSignals(True)
-        self.interval_spin.setValue(int(self.db.get_setting("refresh_interval_minutes", "5")))
-        self.interval_spin.blockSignals(False)
+            dialog.interval_spin.blockSignals(True)
+            dialog.interval_spin.setValue(int(self.db.get_setting("refresh_interval_minutes", "5")))
+            dialog.interval_spin.blockSignals(False)
 
-        self.threshold_spin.blockSignals(True)
-        self.threshold_spin.setValue(int(self.db.get_setting("threshold_pct", "50")))
-        self.threshold_spin.blockSignals(False)
+            dialog.threshold_spin.blockSignals(True)
+            dialog.threshold_spin.setValue(int(self.db.get_setting("threshold_pct", "50")))
+            dialog.threshold_spin.blockSignals(False)
 
-        self.timeframe_combo.blockSignals(True)
-        self.timeframe_combo.setCurrentText(self.db.get_setting("timeframe", "D1"))
-        self.timeframe_combo.blockSignals(False)
+            dialog.timeframe_combo.blockSignals(True)
+            dialog.timeframe_combo.setCurrentText(self.db.get_setting("timeframe", "D1"))
+            dialog.timeframe_combo.blockSignals(False)
 
         self.status_label.setText("App reset. Not connected to MT5.")
         self.status_label.setStyleSheet("color: #9aa1ac;")
         self._apply_timer_state()
 
-        QMessageBox.information(self, "Reset Complete", "All local data has been cleared.")
+        QMessageBox.information(dialog or self, "Reset Complete", "All local data has been cleared.")
 
     # ---------------------------------------------------------- Connection
     def _attempt_connect(self):
@@ -503,8 +477,8 @@ class MainWindow(QMainWindow):
         self.status_label.setStyleSheet("color: #4c8bf5;")
 
         self._thread = QThread(self)
-        threshold_fraction = self.threshold_spin.value() / 100.0
-        timeframe = self.timeframe_combo.currentText()
+        threshold_fraction = int(self.db.get_setting("threshold_pct", "50")) / 100.0
+        timeframe = self.db.get_setting("timeframe", "D1")
         self._worker = RefreshWorker(
             self.connector, symbols,
             threshold_pct=threshold_fraction, timeframe=timeframe,

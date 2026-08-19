@@ -135,8 +135,7 @@ class SignalCard(QFrame):
     def _style_badge(self, signal: str):
         color = SIGNAL_COLORS.get(signal, "#9aa1ac")
         self.signal_badge.setStyleSheet(
-            f"background-color: {color}22; color: {color}; border-radius: 4px; "
-            f"font-weight: 600; padding: 2px 6px;"
+            f"color: {color}; font-weight: 700; padding: 2px 6px;"
         )
 
     def _on_toggle(self):
