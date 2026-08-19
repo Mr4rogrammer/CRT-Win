@@ -96,6 +96,7 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._load_symbols_into_table()
         self._setup_auto_refresh_timer()
+        self._build_options_dock()
 
         # Start on the "not connected" page and try to connect automatically.
         self.stack.setCurrentWidget(self.connect_page)
@@ -348,9 +349,9 @@ class MainWindow(QMainWindow):
         self.db.remove_pair(symbol)
         self._load_symbols_into_table()
 
-    # ---------------------------------------------------------- Settings / Options dialog
-    def _on_open_options(self):
-        dialog = OptionsDialog(
+    # ---------------------------------------------------------- Settings / Options dock
+    def _build_options_dock(self):
+        self.options_dock = OptionsDialog(
             auto_refresh_checked=self.db.get_setting("auto_refresh_enabled", "1") == "1",
             interval_minutes=int(self.db.get_setting("refresh_interval_minutes", "5")),
             threshold_pct=int(self.db.get_setting("threshold_pct", "50")),
@@ -358,6 +359,10 @@ class MainWindow(QMainWindow):
             timeframe_choices=list(TIMEFRAME_MAP.keys()),
             parent=self,
         )
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.options_dock)
+        self.options_dock.hide()
+
+        dialog = self.options_dock
         dialog.auto_refresh_checkbox.stateChanged.connect(
             lambda _s: self._on_auto_refresh_toggled(dialog.auto_refresh_checkbox.isChecked())
         )
@@ -365,7 +370,9 @@ class MainWindow(QMainWindow):
         dialog.threshold_spin.valueChanged.connect(self._on_threshold_changed)
         dialog.timeframe_combo.currentTextChanged.connect(self._on_timeframe_changed)
         dialog.reset_app_btn.clicked.connect(lambda: self._on_reset_app(dialog))
-        dialog.exec()
+
+    def _on_open_options(self):
+        self.options_dock.setVisible(not self.options_dock.isVisible())
 
     def _on_auto_refresh_toggled(self, checked: bool):
         self.db.set_setting("auto_refresh_enabled", "1" if checked else "0")

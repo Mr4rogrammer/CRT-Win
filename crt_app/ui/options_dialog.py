@@ -1,10 +1,14 @@
-"""'More Options' dialog: auto-refresh interval, timeframe, reject threshold,
+"""'More Options' panel: auto-refresh interval, timeframe, reject threshold,
 and the destructive Reset App action - moved out of the main toolbar to keep
-it clean and focused on Symbol/Add/Refresh."""
+it clean and focused on Symbol/Add/Refresh.
+
+Implemented as a QDockWidget fixed to the right edge of the main window (not
+a floating top-level dialog) so it stays docked in place, resizes with the
+window, and can't be dragged/floated away."""
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
-    QDialog,
+    QDockWidget,
+    QWidget,
     QVBoxLayout,
     QFormLayout,
     QHBoxLayout,
@@ -17,10 +21,10 @@ from PySide6.QtWidgets import (
 )
 
 
-class OptionsDialog(QDialog):
+class OptionsDialog(QDockWidget):
     """Houses all secondary settings: auto-refresh toggle/interval, candle
     timeframe, reject threshold %, and the Reset App button. The main window
-    owns the actual widgets/state; this dialog just presents them together
+    owns the actual widgets/state; this panel just presents them together
     and wires the same callbacks the toolbar used to use directly."""
 
     def __init__(
@@ -32,11 +36,15 @@ class OptionsDialog(QDialog):
         timeframe_choices,
         parent=None,
     ):
-        super().__init__(parent)
-        self.setWindowTitle("More Options")
-        self._position_as_right_drawer()
+        super().__init__("More Options", parent)
+        self.setObjectName("optionsDock")
+        # Fixed to the right side: no floating, no closing via drag, no moving.
+        self.setFeatures(QDockWidget.DockWidgetFeature.NoDockWidgetFeatures)
+        self.setAllowedAreas(Qt.DockWidgetArea.RightDockWidgetArea)
 
-        layout = QVBoxLayout(self)
+        container = QWidget()
+        container.setObjectName("optionsDockContent")
+        layout = QVBoxLayout(container)
 
         form = QFormLayout()
         form.setSpacing(10)
@@ -85,29 +93,13 @@ class OptionsDialog(QDialog):
 
         layout.addSpacing(12)
         buttons = QDialogButtonBox(QDialogButtonBox.Close)
-        buttons.rejected.connect(self.accept)
-        buttons.button(QDialogButtonBox.Close).clicked.connect(self.accept)
+        buttons.rejected.connect(self.close)
+        buttons.button(QDialogButtonBox.Close).setText("Hide")
+        buttons.button(QDialogButtonBox.Close).clicked.connect(self.close)
         layout.addWidget(buttons)
 
-    def _position_as_right_drawer(self):
-        """Make this dialog behave like a right-side navigation drawer:
-        full window height, ~25% of the parent/screen width, docked to the
-        right edge."""
-        parent = self.parent()
-        if parent is not None and hasattr(parent, "frameGeometry"):
-            screen_geo = parent.frameGeometry()
-        else:
-            screen = QGuiApplication.primaryScreen()
-            screen_geo = screen.availableGeometry() if screen else None
+        layout.addStretch()
 
-        if screen_geo is None:
-            self.resize(380, 640)
-            return
-
-        width = max(320, int(screen_geo.width() * 0.25))
-        height = screen_geo.height()
-        x = screen_geo.x() + screen_geo.width() - width
-        y = screen_geo.y()
-
-        self.setGeometry(x, y, width, height)
+        self.setWidget(container)
         self.setMinimumWidth(300)
+        self.setMaximumWidth(420)
