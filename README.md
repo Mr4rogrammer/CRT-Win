@@ -55,6 +55,44 @@ This installs dependencies + PyInstaller and produces a single-file
 no need to keep Python installed separately after that (MT5 terminal still
 required, of course).
 
+## Auto-starting MT5 + the app together
+
+The app needs MT5 running and logged in locally before it can connect.
+`launch_with_mt5.bat` (included in the project root) starts MT5 first (if
+it isn't already running), waits a few seconds for it to load, then starts
+`CRT_Signal_Scanner.exe`.
+
+**One-time setup:**
+1. Open `launch_with_mt5.bat` in a text editor.
+2. Set `MT5_PATH` to your MT5 install location. Find it by right-clicking
+   your MT5 shortcut → Properties → copy the "Target" field (commonly
+   `C:\Program Files\MetaTrader 5\terminal64.exe`).
+3. Set `APP_PATH` if `CRT_Signal_Scanner.exe` isn't in the default
+   `dist\` folder next to the script.
+4. Double-click `launch_with_mt5.bat` to test it — MT5 opens, then the
+   app opens shortly after.
+
+**To make this happen automatically when Windows starts:**
+
+- **Option A — Startup folder (simplest):**
+  Press `Win+R`, type `shell:startup`, hit Enter. Create a shortcut to
+  `launch_with_mt5.bat` inside that folder. Windows will run it every time
+  you log in.
+
+- **Option B — Task Scheduler (more control, e.g. run even before login,
+  or with elevated/admin rights):**
+  1. Open **Task Scheduler** → **Create Task**.
+  2. General tab: name it, check "Run whether user is logged on or not"
+     if desired.
+  3. Triggers tab: **New** → "At log on" (or "At startup").
+  4. Actions tab: **New** → Action = "Start a program" → Browse to
+     `launch_with_mt5.bat`.
+  5. Save. It will now launch MT5 + the app automatically at every login/boot.
+
+Note: MT5 needs your account already saved/remembered (or auto-login enabled
+in the terminal) for this to fully work unattended — otherwise it will open
+but wait for you to log in manually before the app can connect.
+
 ## Using the app
 
 1. Add currency pairs/symbols you want to scan (exact MT5 symbol name, e.g.

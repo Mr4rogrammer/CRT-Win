@@ -3,11 +3,11 @@ REM Builds CRT_Signal_Scanner.exe on Windows using PyInstaller.
 REM Run this ON WINDOWS after copying the project folder there.
 
 echo Installing dependencies...
-pip install -r requirements.txt
-pip install pyinstaller
+python -m pip install -r requirements.txt
+python -m pip install pyinstaller
 
 echo Building CRT_Signal_Scanner.exe ...
-pyinstaller --noconfirm --onefile --windowed ^
+python -m PyInstaller --noconfirm --onefile --windowed ^
     --name CRT_Signal_Scanner ^
     --collect-all MetaTrader5 ^
     main.py
