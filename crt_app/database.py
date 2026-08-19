@@ -168,3 +168,15 @@ class Database:
                     "SELECT * FROM signal_history ORDER BY id DESC LIMIT ?", (limit,)
                 ).fetchall()
             return rows
+
+    # ---------- Full reset ----------
+    def reset_all(self) -> None:
+        """Wipes everything: watched pairs, settings, and signal history.
+        Deletes the underlying SQLite file (plus WAL/SHM sidecar files, if
+        present) and recreates a fresh empty schema, as if the app were
+        being run for the very first time."""
+        for suffix in ("", "-wal", "-shm", "-journal"):
+            candidate = Path(str(self.db_path) + suffix)
+            if candidate.exists():
+                candidate.unlink()
+        self._init_schema()

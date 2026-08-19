@@ -16,7 +16,9 @@ Rules (objective, backtestable):
     - level = C1.low + threshold_pct * (C1.high - C1.low)
     - C2.high  < level               (stayed compressed below the threshold level -
       hasn't already rallied back, preserving reward up to the opposite side)
-    - C2.close < level
+    - C1.low   < C2.close < level    (closed back INSIDE C1's range - rejected back
+      above C1.low - but still below the threshold level; a close still below
+      C1.low is a gap-down continuation, not a rejection, and is NOT a valid setup)
     -> Entry: C3 (today's daily candle) open price
     -> Stop-loss: just below C2.low (the sweep wick) - buffer
     -> Take-profit: C1.high (opposite side of the range)
@@ -26,7 +28,9 @@ Rules (objective, backtestable):
     - C2.high  > C1.high             (high of range swept)
     - level = C1.high - threshold_pct * (C1.high - C1.low)
     - C2.low   > level               (stayed compressed above the threshold level)
-    - C2.close > level
+    - level    < C2.close < C1.high  (closed back INSIDE C1's range - rejected back
+      below C1.high - but still above the threshold level; a close still above
+      C1.high is a gap-up continuation, not a rejection, and is NOT a valid setup)
     -> Entry: C3 (today's daily candle) open price
     -> Stop-loss: just above C2.high (the sweep wick) + buffer
     -> Take-profit: C1.low (opposite side of the range)
@@ -94,7 +98,7 @@ def evaluate_crt(
 
     if swept_low:
         level = c1.low + threshold_pct * rng
-        if c2.open > c1.low and c2.high < level and c2.close < level:
+        if c2.open > c1.low and c2.high < level and c1.low < c2.close < level:
             entry = entry_price
             sl = c2.low - buf
             tp = c1.high
@@ -155,7 +159,7 @@ def evaluate_crt(
 
     if swept_high:
         level = c1.high - threshold_pct * rng
-        if c2.open < c1.high and c2.low > level and c2.close > level:
+        if c2.open < c1.high and c2.low > level and level < c2.close < c1.high:
             entry = entry_price
             sl = c2.high + buf
             tp = c1.low

@@ -210,6 +210,15 @@ class MainWindow(QMainWindow):
         top_bar.addWidget(QLabel("Reject Threshold:"))
         top_bar.addWidget(self.threshold_spin)
         top_bar.addStretch()
+
+        self.reset_app_btn = QPushButton("Reset App")
+        self.reset_app_btn.setObjectName("dangerButton")
+        self.reset_app_btn.setToolTip(
+            "Deletes ALL local data: watched pairs, settings, and signal history. Cannot be undone."
+        )
+        self.reset_app_btn.clicked.connect(self._on_reset_app)
+        top_bar.addWidget(self.reset_app_btn)
+
         root.addLayout(top_bar)
 
         # --- Status bar row ---
@@ -348,6 +357,46 @@ class MainWindow(QMainWindow):
 
     def _on_threshold_changed(self, value: int):
         self.db.set_setting("threshold_pct", str(value))
+
+    def _on_reset_app(self):
+        confirm = QMessageBox.question(
+            self,
+            "Reset App?",
+            "This will permanently delete ALL local data:\n\n"
+            "  - Watched pairs\n"
+            "  - Settings (refresh interval, threshold, etc.)\n"
+            "  - Signal history\n\n"
+            "This cannot be undone. Continue?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if confirm != QMessageBox.Yes:
+            return
+
+        self.timer.stop()
+        self.db.reset_all()
+
+        # Reload everything from the freshly-reset (empty/default) DB.
+        self._load_symbols_into_table()
+        self._load_history_into_table()
+
+        self.auto_refresh_checkbox.blockSignals(True)
+        self.auto_refresh_checkbox.setChecked(self.db.get_setting("auto_refresh_enabled", "1") == "1")
+        self.auto_refresh_checkbox.blockSignals(False)
+
+        self.interval_spin.blockSignals(True)
+        self.interval_spin.setValue(int(self.db.get_setting("refresh_interval_minutes", "5")))
+        self.interval_spin.blockSignals(False)
+
+        self.threshold_spin.blockSignals(True)
+        self.threshold_spin.setValue(int(self.db.get_setting("threshold_pct", "50")))
+        self.threshold_spin.blockSignals(False)
+
+        self.status_label.setText("App reset. Not connected to MT5.")
+        self.status_label.setStyleSheet("color: #9aa1ac;")
+        self._apply_timer_state()
+
+        QMessageBox.information(self, "Reset Complete", "All local data has been cleared.")
 
     # ---------------------------------------------------------- Connection
     def _attempt_connect(self):
