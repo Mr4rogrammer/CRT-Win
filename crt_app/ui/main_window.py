@@ -44,16 +44,17 @@ class RefreshWorker(QObject):
     finished = Signal(list)
     failed = Signal(str)
 
-    def __init__(self, connector: MT5Connector, symbols):
+    def __init__(self, connector: MT5Connector, symbols, threshold_pct: float = 0.5):
         super().__init__()
         self.connector = connector
         self.symbols = symbols
+        self.threshold_pct = threshold_pct
 
     def run(self):
         try:
             if not self.connector.connected:
                 self.connector.connect()
-            results = analyze_symbols(self.connector, self.symbols)
+            results = analyze_symbols(self.connector, self.symbols, threshold_pct=self.threshold_pct)
             self.finished.emit(results)
         except Exception as exc:  # noqa: BLE001
             self.failed.emit(str(exc))
@@ -175,6 +176,16 @@ class MainWindow(QMainWindow):
         self.interval_spin.setSuffix(" min")
         self.interval_spin.valueChanged.connect(self._on_interval_changed)
 
+        self.threshold_spin = QSpinBox()
+        self.threshold_spin.setRange(1, 99)
+        self.threshold_spin.setValue(int(self.db.get_setting("threshold_pct", "50")))
+        self.threshold_spin.setSuffix("%")
+        self.threshold_spin.setToolTip(
+            "How far into C1's range (from the swept side) C2 must stay compressed. "
+            "50% = midpoint. Lower = stricter, higher = more lenient."
+        )
+        self.threshold_spin.valueChanged.connect(self._on_threshold_changed)
+
         top_bar.addWidget(QLabel("Symbol:"))
         top_bar.addWidget(self.symbol_input)
         top_bar.addWidget(add_btn)
@@ -183,6 +194,9 @@ class MainWindow(QMainWindow):
         top_bar.addSpacing(20)
         top_bar.addWidget(self.auto_refresh_checkbox)
         top_bar.addWidget(self.interval_spin)
+        top_bar.addSpacing(20)
+        top_bar.addWidget(QLabel("Reject Threshold:"))
+        top_bar.addWidget(self.threshold_spin)
         top_bar.addStretch()
         root.addLayout(top_bar)
 
@@ -285,6 +299,9 @@ class MainWindow(QMainWindow):
         self.db.set_setting("refresh_interval_minutes", str(value))
         self._apply_timer_state()
 
+    def _on_threshold_changed(self, value: int):
+        self.db.set_setting("threshold_pct", str(value))
+
     # ---------------------------------------------------------- Connection
     def _attempt_connect(self):
         if self._connect_thread is not None and self._connect_thread.isRunning():
@@ -336,7 +353,8 @@ class MainWindow(QMainWindow):
         self.status_label.setStyleSheet("color: #2980b9;")
 
         self._thread = QThread(self)
-        self._worker = RefreshWorker(self.connector, symbols)
+        threshold_fraction = self.threshold_spin.value() / 100.0
+        self._worker = RefreshWorker(self.connector, symbols, threshold_pct=threshold_fraction)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._worker.finished.connect(self._on_refresh_finished)

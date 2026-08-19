@@ -13,6 +13,7 @@ DB_PATH = DB_DIR / "crt_app.db"
 DEFAULT_SETTINGS = {
     "refresh_interval_minutes": "5",
     "auto_refresh_enabled": "1",
+    "threshold_pct": "50",  # percentage (1-99), converted to a 0-1 fraction when evaluating
 }
 
 

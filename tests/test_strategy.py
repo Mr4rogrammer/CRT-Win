@@ -85,6 +85,30 @@ class TestCRTStrategy(unittest.TestCase):
         result = evaluate_crt("EURUSD", c1, c2, current_price=100)
         self.assertEqual(result.signal, "NO TRADE")
 
+    def test_custom_threshold_stricter_rejects_setup_that_passes_at_50pct(self):
+        # C1: high=100 low=90. At the default 50% (level=95) this C2 qualifies
+        # as BUY (close=94 < 95). With a stricter 20% threshold (level=92),
+        # close=94 now crosses past it -> NO TRADE.
+        c1 = make_candle(2, o=95, h=100, l=90, c=93)
+        c2 = make_candle(1, o=93, h=94, l=88, c=94)
+        default_result = evaluate_crt("EURUSD", c1, c2, current_price=94)
+        self.assertEqual(default_result.signal, "BUY")
+
+        strict_result = evaluate_crt("EURUSD", c1, c2, current_price=94, threshold_pct=0.2)
+        self.assertEqual(strict_result.signal, "NO TRADE")
+
+    def test_custom_threshold_more_lenient_allows_setup_that_fails_at_50pct(self):
+        # C1: high=100 low=90. At default 50% (level=95), C2's low (93.5) and
+        # close (94) fall short -> NO TRADE. With a more lenient 70% threshold
+        # (level=93), the same C2 now qualifies as SELL.
+        c1 = make_candle(2, o=95, h=100, l=90, c=97)
+        c2 = make_candle(1, o=97, h=101, l=93.5, c=94)
+        default_result = evaluate_crt("EURUSD", c1, c2, current_price=94)
+        self.assertEqual(default_result.signal, "NO TRADE")
+
+        lenient_result = evaluate_crt("EURUSD", c1, c2, current_price=94, threshold_pct=0.7)
+        self.assertEqual(lenient_result.signal, "SELL")
+
 
 if __name__ == "__main__":
     unittest.main()
