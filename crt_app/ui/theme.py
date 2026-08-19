@@ -176,6 +176,35 @@ QMessageBox {
     background-color: #1e2229;
 }
 
+#signalCard {
+    background-color: #20252c;
+    border: 1px solid #2f3542;
+    border-radius: 8px;
+}
+#signalCard:hover {
+    border: 1px solid #3a4150;
+}
+#signalCardDetail {
+    background-color: #1a1e24;
+    border-top: 1px solid #2f3542;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+QToolButton {
+    background: transparent;
+    border: none;
+    color: #9aa1ac;
+    font-size: 14px;
+}
+QToolButton:hover {
+    color: #ffffff;
+}
+
+QScrollArea {
+    background: transparent;
+    border: none;
+}
+
 QToolTip {
     background-color: #2a2f3a;
     color: #f0f0f0;

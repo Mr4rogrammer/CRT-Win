@@ -16,16 +16,20 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QCheckBox,
     QSpinBox,
+    QComboBox,
     QTabWidget,
     QMessageBox,
     QAbstractItemView,
     QStackedWidget,
+    QScrollArea,
+    QFrame,
 )
 
 from ..database import Database
 from ..engine import analyze_symbols
-from ..mt5_connector import MT5Connector, MT5_AVAILABLE
+from ..mt5_connector import MT5Connector, MT5_AVAILABLE, TIMEFRAME_MAP
 from .symbol_picker import SymbolPickerDialog
+from .signal_card import SignalCard, SIGNAL_SORT_PRIORITY
 
 SIGNAL_COLORS = {
     "BUY": QColor("#3ddc84"),
@@ -34,28 +38,27 @@ SIGNAL_COLORS = {
     "ERROR": QColor("#f0ad4e"),
 }
 
-TABLE_COLUMNS = [
-    "Symbol", "Signal", "Entry", "Stop Loss", "Take Profit",
-    "R:R", "Reason", "Last Update",
-]
-
 
 class RefreshWorker(QObject):
     """Runs MT5 fetch + CRT evaluation off the UI thread."""
     finished = Signal(list)
     failed = Signal(str)
 
-    def __init__(self, connector: MT5Connector, symbols, threshold_pct: float = 0.5):
+    def __init__(self, connector: MT5Connector, symbols, threshold_pct: float = 0.5, timeframe: str = "D1"):
         super().__init__()
         self.connector = connector
         self.symbols = symbols
         self.threshold_pct = threshold_pct
+        self.timeframe = timeframe
 
     def run(self):
         try:
             if not self.connector.connected:
                 self.connector.connect()
-            results = analyze_symbols(self.connector, self.symbols, threshold_pct=self.threshold_pct)
+            results = analyze_symbols(
+                self.connector, self.symbols,
+                threshold_pct=self.threshold_pct, timeframe=self.timeframe,
+            )
             self.finished.emit(results)
         except Exception as exc:  # noqa: BLE001
             self.failed.emit(str(exc))
@@ -197,6 +200,16 @@ class MainWindow(QMainWindow):
         )
         self.threshold_spin.valueChanged.connect(self._on_threshold_changed)
 
+        self.timeframe_combo = QComboBox()
+        self.timeframe_combo.addItems(list(TIMEFRAME_MAP.keys()))
+        saved_timeframe = self.db.get_setting("timeframe", "D1")
+        if saved_timeframe in TIMEFRAME_MAP:
+            self.timeframe_combo.setCurrentText(saved_timeframe)
+        self.timeframe_combo.setToolTip(
+            "Candle timeframe used for C1/C2/C3 (e.g. D1 = daily, H4 = 4-hour, H1 = 1-hour)."
+        )
+        self.timeframe_combo.currentTextChanged.connect(self._on_timeframe_changed)
+
         top_bar.addWidget(QLabel("Symbol:"))
         top_bar.addWidget(self.symbol_input)
         top_bar.addWidget(add_btn)
@@ -206,6 +219,9 @@ class MainWindow(QMainWindow):
         top_bar.addSpacing(20)
         top_bar.addWidget(self.auto_refresh_checkbox)
         top_bar.addWidget(self.interval_spin)
+        top_bar.addSpacing(20)
+        top_bar.addWidget(QLabel("Timeframe:"))
+        top_bar.addWidget(self.timeframe_combo)
         top_bar.addSpacing(20)
         top_bar.addWidget(QLabel("Reject Threshold:"))
         top_bar.addWidget(self.threshold_spin)
@@ -230,20 +246,37 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         root.addWidget(self.tabs)
 
-        # Live signals tab
+        # Live signals tab - a scrollable list of expandable/collapsible SignalCards,
+        # sorted BUY -> SELL -> NO TRADE -> ERROR.
         live_tab = QWidget()
         live_layout = QVBoxLayout(live_tab)
-        self.table = QTableWidget(0, len(TABLE_COLUMNS) + 1)  # +1 for Remove button
-        self.table.setHorizontalHeaderLabels(TABLE_COLUMNS + ["Remove"])
-        self.table.horizontalHeader().setSectionResizeMode(6, QHeaderView.Stretch)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setWordWrap(True)
-        self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        self.table.setAlternatingRowColors(True)
-        self.table.verticalHeader().setVisible(False)
-        live_layout.addWidget(self.table)
+        live_layout.setContentsMargins(0, 0, 0, 0)
+
+        controls_row = QHBoxLayout()
+        expand_all_btn = QPushButton("Expand All")
+        expand_all_btn.clicked.connect(lambda: self._set_all_cards_expanded(True))
+        collapse_all_btn = QPushButton("Collapse All")
+        collapse_all_btn.clicked.connect(lambda: self._set_all_cards_expanded(False))
+        controls_row.addWidget(expand_all_btn)
+        controls_row.addWidget(collapse_all_btn)
+        controls_row.addStretch()
+        live_layout.addLayout(controls_row)
+
+        self.signals_scroll = QScrollArea()
+        self.signals_scroll.setWidgetResizable(True)
+        self.signals_scroll.setFrameShape(QFrame.NoFrame)
+        self.signals_container = QWidget()
+        self.signals_container_layout = QVBoxLayout(self.signals_container)
+        self.signals_container_layout.setContentsMargins(0, 0, 0, 0)
+        self.signals_container_layout.setSpacing(6)
+        self.signals_container_layout.addStretch()
+        self.signals_scroll.setWidget(self.signals_container)
+        live_layout.addWidget(self.signals_scroll)
+
         self.tabs.addTab(live_tab, "Live Signals")
+
+        # symbol -> SignalCard
+        self.signal_cards = {}
 
         # History tab
         history_tab = QWidget()
@@ -285,20 +318,40 @@ class MainWindow(QMainWindow):
 
     # ---------------------------------------------------------- Symbol management
     def _load_symbols_into_table(self):
-        self.table.setRowCount(0)
+        # Remove existing cards.
+        for card in list(self.signal_cards.values()):
+            card.setParent(None)
+        self.signal_cards = {}
         for symbol in self.db.get_pairs():
             self._add_symbol_row(symbol)
+        self._resort_signal_cards()
 
     def _add_symbol_row(self, symbol: str):
-        row = self.table.rowCount()
-        self.table.insertRow(row)
-        self.table.setItem(row, 0, QTableWidgetItem(symbol))
-        for col in range(1, len(TABLE_COLUMNS)):
-            self.table.setItem(row, col, QTableWidgetItem(""))
-        remove_btn = QPushButton("Remove")
-        remove_btn.setObjectName("dangerButton")
-        remove_btn.clicked.connect(lambda _, s=symbol: self._on_remove_symbol(s))
-        self.table.setCellWidget(row, len(TABLE_COLUMNS), remove_btn)
+        if symbol in self.signal_cards:
+            return
+        card = SignalCard(symbol)
+        card.remove_clicked.connect(self._on_remove_symbol)
+        # Insert before the trailing stretch (last item in the layout).
+        insert_at = self.signals_container_layout.count() - 1
+        self.signals_container_layout.insertWidget(insert_at, card)
+        self.signal_cards[symbol] = card
+
+    def _set_all_cards_expanded(self, expanded: bool):
+        for card in self.signal_cards.values():
+            card.set_expanded(expanded)
+
+    def _resort_signal_cards(self):
+        """Re-orders the cards in the layout: BUY first, then SELL, then
+        NO TRADE, then ERROR/unknown last (alphabetical within each group)."""
+        cards = sorted(self.signal_cards.values(), key=lambda c: c.sort_key())
+        # Remove the trailing stretch temporarily, re-add widgets in order, restore stretch.
+        while self.signals_container_layout.count():
+            item = self.signals_container_layout.takeAt(0)
+            if item.widget():
+                item.widget().setParent(None)
+        for card in cards:
+            self.signals_container_layout.addWidget(card)
+        self.signals_container_layout.addStretch()
 
     def _on_add_symbol(self):
         symbol = self.symbol_input.text().strip().upper()
@@ -306,6 +359,7 @@ class MainWindow(QMainWindow):
             return
         if self.db.add_pair(symbol):
             self._add_symbol_row(symbol)
+            self._resort_signal_cards()
             self.symbol_input.clear()
         else:
             QMessageBox.information(self, "Already added", f"{symbol} is already in your watch list.")
@@ -339,13 +393,6 @@ class MainWindow(QMainWindow):
         self.db.remove_pair(symbol)
         self._load_symbols_into_table()
 
-    def _find_row_for_symbol(self, symbol: str):
-        for row in range(self.table.rowCount()):
-            item = self.table.item(row, 0)
-            if item and item.text() == symbol:
-                return row
-        return None
-
     # ---------------------------------------------------------- Settings
     def _on_auto_refresh_toggled(self, _state):
         self.db.set_setting("auto_refresh_enabled", "1" if self.auto_refresh_checkbox.isChecked() else "0")
@@ -357,6 +404,9 @@ class MainWindow(QMainWindow):
 
     def _on_threshold_changed(self, value: int):
         self.db.set_setting("threshold_pct", str(value))
+
+    def _on_timeframe_changed(self, value: str):
+        self.db.set_setting("timeframe", value)
 
     def _on_reset_app(self):
         confirm = QMessageBox.question(
@@ -391,6 +441,10 @@ class MainWindow(QMainWindow):
         self.threshold_spin.blockSignals(True)
         self.threshold_spin.setValue(int(self.db.get_setting("threshold_pct", "50")))
         self.threshold_spin.blockSignals(False)
+
+        self.timeframe_combo.blockSignals(True)
+        self.timeframe_combo.setCurrentText(self.db.get_setting("timeframe", "D1"))
+        self.timeframe_combo.blockSignals(False)
 
         self.status_label.setText("App reset. Not connected to MT5.")
         self.status_label.setStyleSheet("color: #9aa1ac;")
@@ -450,7 +504,11 @@ class MainWindow(QMainWindow):
 
         self._thread = QThread(self)
         threshold_fraction = self.threshold_spin.value() / 100.0
-        self._worker = RefreshWorker(self.connector, symbols, threshold_pct=threshold_fraction)
+        timeframe = self.timeframe_combo.currentText()
+        self._worker = RefreshWorker(
+            self.connector, symbols,
+            threshold_pct=threshold_fraction, timeframe=timeframe,
+        )
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._worker.finished.connect(self._on_refresh_finished)
@@ -478,36 +536,18 @@ class MainWindow(QMainWindow):
         self.status_label.setStyleSheet("color: #3ddc84;")
 
         for result in results:
-            row = self._find_row_for_symbol(result.symbol)
-            if row is None:
+            card = self.signal_cards.get(result.symbol)
+            if card is None:
                 continue
-            self._populate_row(row, result, now_str)
+            card.update_result(result, now_str)
 
             if result.signal in ("BUY", "SELL"):
                 c2_iso = result.c2.time.isoformat() if result.c2 else None
                 if not self.db.already_logged(result.symbol, result.signal, c2_iso):
                     self.db.log_signal(result)
 
+        self._resort_signal_cards()
         self._load_history_into_table()
-
-    def _populate_row(self, row: int, result, now_str: str):
-        def set_cell(col, text, color=None, wrap=False):
-            item = QTableWidgetItem(text)
-            if color:
-                item.setForeground(color)
-            if wrap:
-                item.setTextAlignment(Qt.AlignLeft | Qt.AlignTop)
-            self.table.setItem(row, col, item)
-
-        color = SIGNAL_COLORS.get(result.signal)
-        set_cell(1, result.signal, color)
-        set_cell(2, f"{result.entry:.5f}" if result.entry is not None else "-")
-        set_cell(3, f"{result.stop_loss:.5f}" if result.stop_loss is not None else "-")
-        set_cell(4, f"{result.take_profit:.5f}" if result.take_profit is not None else "-")
-        set_cell(5, f"{result.risk_reward:.2f}" if result.risk_reward else "-")
-        set_cell(6, result.reason or "", wrap=True)
-        set_cell(7, now_str)
-        self.table.resizeRowToContents(row)
 
     def _load_history_into_table(self):
         rows = self.db.get_history(limit=200)

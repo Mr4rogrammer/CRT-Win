@@ -42,6 +42,25 @@ class TestCRTStrategy(unittest.TestCase):
         result = evaluate_crt("EURUSD", c1, c2, entry_price=96)
         self.assertEqual(result.signal, "NO TRADE")
 
+    def test_low_sweep_but_close_still_below_c1_low_is_no_trade(self):
+        # C1: high=100 low=90. C2 opens inside (92), sweeps the low (88),
+        # stays compressed below the threshold level (95) BUT its close (89)
+        # never actually rejected back inside C1's range - it's a gap-down
+        # continuation candle, not a genuine reversal. Must be NO TRADE.
+        c1 = make_candle(2, o=95, h=100, l=90, c=93)
+        c2 = make_candle(1, o=92, h=93, l=88, c=89)  # close 89 < C1.low 90
+        result = evaluate_crt("EURUSD", c1, c2, entry_price=89)
+        self.assertEqual(result.signal, "NO TRADE")
+
+    def test_high_sweep_but_close_still_above_c1_high_is_no_trade(self):
+        # Mirror: C1 high=100 low=90. C2 opens inside (98), sweeps the high
+        # (102), stays compressed above the threshold level (95) BUT its
+        # close (101) never rejected back inside C1's range. Must be NO TRADE.
+        c1 = make_candle(2, o=95, h=100, l=90, c=97)
+        c2 = make_candle(1, o=98, h=102, l=96, c=101)  # close 101 > C1.high 100
+        result = evaluate_crt("EURUSD", c1, c2, entry_price=101)
+        self.assertEqual(result.signal, "NO TRADE")
+
     def test_both_sides_swept_is_ambiguous(self):
         c1 = make_candle(2, o=95, h=100, l=90, c=97)
         c2 = make_candle(1, o=95, h=102, l=88, c=95)  # sweeps both high and low

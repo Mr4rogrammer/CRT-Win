@@ -19,6 +19,30 @@ except ImportError:
     MT5_AVAILABLE = False
 
 
+# Human-friendly timeframe labels -> MT5 timeframe constants. Built lazily
+# (only when MT5_AVAILABLE) since `mt5.TIMEFRAME_*` constants don't exist
+# when the package couldn't be imported (e.g. on macOS/Linux dev machines).
+if MT5_AVAILABLE:
+    TIMEFRAME_MAP = {
+        "M1": mt5.TIMEFRAME_M1,
+        "M5": mt5.TIMEFRAME_M5,
+        "M15": mt5.TIMEFRAME_M15,
+        "M30": mt5.TIMEFRAME_M30,
+        "H1": mt5.TIMEFRAME_H1,
+        "H4": mt5.TIMEFRAME_H4,
+        "D1": mt5.TIMEFRAME_D1,
+        "W1": mt5.TIMEFRAME_W1,
+        "MN1": mt5.TIMEFRAME_MN1,
+    }
+else:
+    # Placeholder keys so the UI (which needs the list of supported labels)
+    # can still be built and tested on non-Windows machines.
+    TIMEFRAME_MAP = {
+        "M1": None, "M5": None, "M15": None, "M30": None,
+        "H1": None, "H4": None, "D1": None, "W1": None, "MN1": None,
+    }
+
+
 class MT5Connector:
     """Manages the connection to a locally running MT5 terminal and fetches data."""
 
@@ -50,11 +74,15 @@ class MT5Connector:
             return None
         return mt5.terminal_info()
 
-    def get_daily_candles(self, symbol: str, count: int = 3) -> List[Candle]:
-        """Returns `count` daily candles, most recent first.
+    def get_daily_candles(self, symbol: str, count: int = 3, timeframe: str = "D1") -> List[Candle]:
+        """Returns `count` candles on the given `timeframe`, most recent first.
         Index 0 = current/live (forming) candle -> C3
         Index 1 = last completed candle -> C2
         Index 2 = candle before that -> C1 (reference)
+
+        `timeframe` is one of the keys in TIMEFRAME_MAP (e.g. "M15", "H1",
+        "H4", "D1", "W1"). Despite the method name, this works for any
+        supported timeframe, not just daily.
         """
         if not MT5_AVAILABLE:
             raise RuntimeError("MetaTrader5 package not available on this platform.")
@@ -64,11 +92,17 @@ class MT5Connector:
         if not mt5.symbol_select(symbol, True):
             raise RuntimeError(f"Symbol '{symbol}' could not be selected in Market Watch.")
 
-        rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_D1, 0, count)
+        tf_const = TIMEFRAME_MAP.get(timeframe)
+        if tf_const is None:
+            raise RuntimeError(
+                f"Unsupported timeframe '{timeframe}'. Supported: {', '.join(TIMEFRAME_MAP)}."
+            )
+
+        rates = mt5.copy_rates_from_pos(symbol, tf_const, 0, count)
         if rates is None or len(rates) < count:
             code, desc = mt5.last_error()
             raise RuntimeError(
-                f"Could not fetch {count} daily candles for '{symbol}' "
+                f"Could not fetch {count} {timeframe} candles for '{symbol}' "
                 f"(error {code}: {desc})."
             )
 

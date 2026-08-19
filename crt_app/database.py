@@ -14,6 +14,7 @@ DEFAULT_SETTINGS = {
     "refresh_interval_minutes": "5",
     "auto_refresh_enabled": "1",
     "threshold_pct": "50",  # percentage (1-99), converted to a 0-1 fraction when evaluating
+    "timeframe": "D1",  # one of TIMEFRAME_MAP keys in mt5_connector.py (M1..MN1)
 }
 
 
