@@ -17,7 +17,7 @@ Rules (objective, backtestable):
     - C2.high  < level               (stayed compressed below the threshold level -
       hasn't already rallied back, preserving reward up to the opposite side)
     - C2.close < level
-    -> Entry: current market price
+    -> Entry: C3 (today's daily candle) open price
     -> Stop-loss: just below C2.low (the sweep wick) - buffer
     -> Take-profit: C1.high (opposite side of the range)
 
@@ -27,7 +27,7 @@ Rules (objective, backtestable):
     - level = C1.high - threshold_pct * (C1.high - C1.low)
     - C2.low   > level               (stayed compressed above the threshold level)
     - C2.close > level
-    -> Entry: current market price
+    -> Entry: C3 (today's daily candle) open price
     -> Stop-loss: just above C2.high (the sweep wick) + buffer
     -> Take-profit: C1.low (opposite side of the range)
 
@@ -50,12 +50,12 @@ def evaluate_crt(
     symbol: str,
     c1: Candle,
     c2: Candle,
-    current_price: float,
+    entry_price: float,
     buffer: Optional[float] = None,
     threshold_pct: float = DEFAULT_THRESHOLD_PCT,
 ) -> SignalResult:
     """Evaluate the CRT setup given reference candle c1, sweep candle c2,
-    the current live market price (used as the C3 entry reference), and a
+    the C3 (today's) daily candle open price used as the entry reference, and a
     configurable threshold_pct (0 < threshold_pct < 1) - the fraction of C1's
     range, measured from the swept side, that C2 must stay within."""
     now = datetime.now()
@@ -95,12 +95,33 @@ def evaluate_crt(
     if swept_low:
         level = c1.low + threshold_pct * rng
         if c2.open > c1.low and c2.high < level and c2.close < level:
-            entry = current_price
+            entry = entry_price
             sl = c2.low - buf
             tp = c1.high
             risk = entry - sl
             reward = tp - entry
-            rr = (reward / risk) if risk > 0 else None
+            # Guard against a stale/invalidated setup: if the live price has
+            # already moved past the stop-loss or the take-profit since C2
+            # closed, this is no longer a valid tradeable entry.
+            if risk <= 0 or reward <= 0:
+                return SignalResult(
+                    symbol=symbol,
+                    signal="NO TRADE",
+                    reason=(
+                        f"Bullish CRT setup found (C1 low swept by C2), but the current "
+                        f"price {entry:.5f} has already moved past the stop-loss "
+                        f"({sl:.5f}) or take-profit ({tp:.5f}) since C2 closed - "
+                        f"setup no longer tradeable."
+                    ),
+                    entry=entry,
+                    stop_loss=sl,
+                    take_profit=tp,
+                    c1=c1,
+                    c2=c2,
+                    c3_time=now,
+                    evaluated_at=now,
+                )
+            rr = reward / risk
             return SignalResult(
                 symbol=symbol,
                 signal="BUY",
@@ -135,12 +156,33 @@ def evaluate_crt(
     if swept_high:
         level = c1.high - threshold_pct * rng
         if c2.open < c1.high and c2.low > level and c2.close > level:
-            entry = current_price
+            entry = entry_price
             sl = c2.high + buf
             tp = c1.low
             risk = sl - entry
             reward = entry - tp
-            rr = (reward / risk) if risk > 0 else None
+            # Guard against a stale/invalidated setup: if the live price has
+            # already moved past the stop-loss or the take-profit since C2
+            # closed, this is no longer a valid tradeable entry.
+            if risk <= 0 or reward <= 0:
+                return SignalResult(
+                    symbol=symbol,
+                    signal="NO TRADE",
+                    reason=(
+                        f"Bearish CRT setup found (C1 high swept by C2), but the current "
+                        f"price {entry:.5f} has already moved past the stop-loss "
+                        f"({sl:.5f}) or take-profit ({tp:.5f}) since C2 closed - "
+                        f"setup no longer tradeable."
+                    ),
+                    entry=entry,
+                    stop_loss=sl,
+                    take_profit=tp,
+                    c1=c1,
+                    c2=c2,
+                    c3_time=now,
+                    evaluated_at=now,
+                )
+            rr = reward / risk
             return SignalResult(
                 symbol=symbol,
                 signal="SELL",

@@ -18,9 +18,11 @@ only displays the signal for you to act on manually.
   - Bullish (`BUY`): `C2.low < C1.low`, `C2.high <= C1.high`, and
     `C2.close > midpoint(C1)`.
   - Both sides swept, or close doesn't cross the midpoint back → `NO TRADE`.
-- **C3** — today's live/forming candle — the entry candle. Entry = current
-  market price, stop-loss = just beyond C2's sweep wick, take-profit =
-  the opposite side of C1's range.
+- **C3** — today's live/forming candle — the entry candle. Entry = C3's
+  opening price (stable, not a fluctuating live tick), stop-loss = just
+  beyond C2's sweep wick, take-profit = the opposite side of C1's range.
+  If price has already moved past the stop-loss or take-profit by the time
+  the app checks (setup is stale), it reports `NO TRADE` instead of a signal.
 
 See `crt_app/strategy.py` for the full implementation and `tests/test_strategy.py`
 for the objective rule set validated with unit tests.

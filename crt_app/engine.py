@@ -9,13 +9,15 @@ from .strategy import evaluate_crt
 
 def analyze_symbol(connector: MT5Connector, symbol: str, threshold_pct: float = 0.5) -> SignalResult:
     """Fetch daily candles for `symbol` and evaluate the CRT strategy.
+    Uses C3's opening price (today's daily candle open) as the entry
+    reference - a fixed, stable value rather than a fluctuating live tick.
     Never raises - returns a SignalResult with signal="ERROR" on failure.
     """
     try:
         candles = connector.get_daily_candles(symbol, count=3)
         c3_forming, c2, c1 = candles[0], candles[1], candles[2]
-        current_price = connector.get_current_price(symbol)
-        result = evaluate_crt(symbol, c1, c2, current_price, threshold_pct=threshold_pct)
+        entry_price = c3_forming.open
+        result = evaluate_crt(symbol, c1, c2, entry_price, threshold_pct=threshold_pct)
         result.c3_time = c3_forming.time
         return result
     except Exception as exc:  # noqa: BLE001 - surface any MT5/network error to the UI

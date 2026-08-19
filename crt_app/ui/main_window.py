@@ -25,12 +25,13 @@ from PySide6.QtWidgets import (
 from ..database import Database
 from ..engine import analyze_symbols
 from ..mt5_connector import MT5Connector, MT5_AVAILABLE
+from .symbol_picker import SymbolPickerDialog
 
 SIGNAL_COLORS = {
-    "BUY": QColor("#1b7f3c"),
-    "SELL": QColor("#c0392b"),
-    "NO TRADE": QColor("#7f8c8d"),
-    "ERROR": QColor("#e67e22"),
+    "BUY": QColor("#3ddc84"),
+    "SELL": QColor("#ff6b6b"),
+    "NO TRADE": QColor("#9aa1ac"),
+    "ERROR": QColor("#f0ad4e"),
 }
 
 TABLE_COLUMNS = [
@@ -81,7 +82,8 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("CRT Signal Scanner (MT5 - Daily)")
-        self.resize(1100, 600)
+        self.resize(1280, 720)
+        self.setMinimumSize(900, 560)
 
         self.db = Database()
         self.connector = MT5Connector()
@@ -116,14 +118,14 @@ class MainWindow(QMainWindow):
 
         title = QLabel("Not Connected to MetaTrader 5")
         title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet("font-size: 20px; font-weight: bold;")
+        title.setStyleSheet("font-size: 22px; font-weight: 600; color: #f0f0f0;")
 
         self.connect_message_label = QLabel(
             "Click Connect to try connecting to your local MT5 terminal."
         )
         self.connect_message_label.setAlignment(Qt.AlignCenter)
         self.connect_message_label.setWordWrap(True)
-        self.connect_message_label.setStyleSheet("color: #7f8c8d; padding: 0 60px;")
+        self.connect_message_label.setStyleSheet("color: #9aa1ac; padding: 0 60px;")
 
         if not MT5_AVAILABLE:
             self.connect_message_label.setText(
@@ -131,10 +133,12 @@ class MainWindow(QMainWindow):
                 "with 'pip install MetaTrader5' on your Windows machine and make sure "
                 "the MetaTrader 5 terminal is installed and running."
             )
-            self.connect_message_label.setStyleSheet("color: #e67e22; padding: 0 60px;")
+            self.connect_message_label.setStyleSheet("color: #f0ad4e; padding: 0 60px;")
 
         self.connect_btn = QPushButton("Connect to MT5")
+        self.connect_btn.setObjectName("connectButton")
         self.connect_btn.setFixedWidth(220)
+        self.connect_btn.setFixedHeight(40)
         self.connect_btn.clicked.connect(self._attempt_connect)
 
         btn_row = QHBoxLayout()
@@ -153,16 +157,23 @@ class MainWindow(QMainWindow):
     def _build_main_page(self) -> QWidget:
         central = QWidget()
         root = QVBoxLayout(central)
+        root.setContentsMargins(16, 16, 16, 16)
+        root.setSpacing(12)
 
         # --- Top control bar ---
         top_bar = QHBoxLayout()
+        top_bar.setSpacing(8)
         self.symbol_input = QLineEdit()
         self.symbol_input.setPlaceholderText("e.g. EURUSD")
         self.symbol_input.returnPressed.connect(self._on_add_symbol)
         add_btn = QPushButton("Add Pair")
+        add_btn.setObjectName("primaryButton")
         add_btn.clicked.connect(self._on_add_symbol)
+        browse_btn = QPushButton("Browse Pairs...")
+        browse_btn.clicked.connect(self._on_browse_pairs)
 
         self.refresh_btn = QPushButton("Refresh Now")
+        self.refresh_btn.setObjectName("primaryButton")
         self.refresh_btn.clicked.connect(self.refresh_signals)
 
         self.auto_refresh_checkbox = QCheckBox("Auto-refresh every")
@@ -189,6 +200,7 @@ class MainWindow(QMainWindow):
         top_bar.addWidget(QLabel("Symbol:"))
         top_bar.addWidget(self.symbol_input)
         top_bar.addWidget(add_btn)
+        top_bar.addWidget(browse_btn)
         top_bar.addSpacing(20)
         top_bar.addWidget(self.refresh_btn)
         top_bar.addSpacing(20)
@@ -202,7 +214,7 @@ class MainWindow(QMainWindow):
 
         # --- Status bar row ---
         self.status_label = QLabel("Not connected to MT5.")
-        self.status_label.setStyleSheet("color: #7f8c8d;")
+        self.status_label.setStyleSheet("color: #9aa1ac;")
         root.addWidget(self.status_label)
 
         # --- Tabs: Live signals / History ---
@@ -217,6 +229,10 @@ class MainWindow(QMainWindow):
         self.table.horizontalHeader().setSectionResizeMode(6, QHeaderView.Stretch)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setWordWrap(True)
+        self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.table.setAlternatingRowColors(True)
+        self.table.verticalHeader().setVisible(False)
         live_layout.addWidget(self.table)
         self.tabs.addTab(live_tab, "Live Signals")
 
@@ -236,6 +252,11 @@ class MainWindow(QMainWindow):
             "R:R", "Reason", "Evaluated At", "C2 Close",
         ])
         self.history_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.history_table.horizontalHeader().setSectionResizeMode(6, QHeaderView.Stretch)
+        self.history_table.setWordWrap(True)
+        self.history_table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.history_table.setAlternatingRowColors(True)
+        self.history_table.verticalHeader().setVisible(False)
         history_layout.addWidget(self.history_table)
         self.tabs.addTab(history_tab, "Signal History")
 
@@ -266,6 +287,7 @@ class MainWindow(QMainWindow):
         for col in range(1, len(TABLE_COLUMNS)):
             self.table.setItem(row, col, QTableWidgetItem(""))
         remove_btn = QPushButton("Remove")
+        remove_btn.setObjectName("dangerButton")
         remove_btn.clicked.connect(lambda _, s=symbol: self._on_remove_symbol(s))
         self.table.setCellWidget(row, len(TABLE_COLUMNS), remove_btn)
 
@@ -278,6 +300,31 @@ class MainWindow(QMainWindow):
             self.symbol_input.clear()
         else:
             QMessageBox.information(self, "Already added", f"{symbol} is already in your watch list.")
+
+    def _on_browse_pairs(self):
+        if not self.connector.connected:
+            QMessageBox.warning(
+                self, "Not connected",
+                "Connect to MT5 first so the full symbol list can be loaded from your broker.",
+            )
+            return
+        try:
+            all_symbols = self.connector.get_all_symbols()
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(self, "Could not load symbols", str(exc))
+            return
+
+        current = set(self.db.get_pairs())
+        dialog = SymbolPickerDialog(all_symbols, current, self)
+        if dialog.exec() != SymbolPickerDialog.Accepted:
+            return
+
+        selected = dialog.selected_symbols()
+        for symbol in selected - current:
+            self.db.add_pair(symbol)
+        for symbol in current - selected:
+            self.db.remove_pair(symbol)
+        self._load_symbols_into_table()
 
     def _on_remove_symbol(self, symbol: str):
         self.db.remove_pair(symbol)
@@ -309,7 +356,7 @@ class MainWindow(QMainWindow):
         self.connect_btn.setEnabled(False)
         self.connect_btn.setText("Connecting...")
         self.connect_message_label.setText("Attempting to connect to MetaTrader 5...")
-        self.connect_message_label.setStyleSheet("color: #2980b9; padding: 0 60px;")
+        self.connect_message_label.setStyleSheet("color: #4c8bf5; padding: 0 60px;")
 
         self._connect_thread = QThread(self)
         self._connect_worker = ConnectWorker(self.connector)
@@ -331,12 +378,12 @@ class MainWindow(QMainWindow):
     def _on_connect_succeeded(self):
         self.stack.setCurrentWidget(self.main_page)
         self.status_label.setText("Connected to MT5.")
-        self.status_label.setStyleSheet("color: #1b7f3c;")
+        self.status_label.setStyleSheet("color: #3ddc84;")
         self.refresh_signals()
 
     def _on_connect_failed(self, message: str):
         self.connect_message_label.setText(message)
-        self.connect_message_label.setStyleSheet("color: #c0392b; padding: 0 60px;")
+        self.connect_message_label.setStyleSheet("color: #ff6b6b; padding: 0 60px;")
         self.stack.setCurrentWidget(self.connect_page)
 
     # ---------------------------------------------------------- Refresh logic
@@ -350,7 +397,7 @@ class MainWindow(QMainWindow):
 
         self.refresh_btn.setEnabled(False)
         self.status_label.setText("Fetching daily candles from MT5...")
-        self.status_label.setStyleSheet("color: #2980b9;")
+        self.status_label.setStyleSheet("color: #4c8bf5;")
 
         self._thread = QThread(self)
         threshold_fraction = self.threshold_spin.value() / 100.0
@@ -371,7 +418,7 @@ class MainWindow(QMainWindow):
 
     def _on_refresh_failed(self, message: str):
         self.status_label.setText(f"MT5 error: {message}")
-        self.status_label.setStyleSheet("color: #c0392b;")
+        self.status_label.setStyleSheet("color: #ff6b6b;")
         # Connection was likely lost - send the user back to the connect page.
         self.connector.connected = False
         self._on_connect_failed(message)
@@ -379,7 +426,7 @@ class MainWindow(QMainWindow):
     def _on_refresh_finished(self, results):
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.status_label.setText(f"Connected. Last updated: {now_str}")
-        self.status_label.setStyleSheet("color: #1b7f3c;")
+        self.status_label.setStyleSheet("color: #3ddc84;")
 
         for result in results:
             row = self._find_row_for_symbol(result.symbol)
@@ -395,10 +442,12 @@ class MainWindow(QMainWindow):
         self._load_history_into_table()
 
     def _populate_row(self, row: int, result, now_str: str):
-        def set_cell(col, text, color=None):
+        def set_cell(col, text, color=None, wrap=False):
             item = QTableWidgetItem(text)
             if color:
                 item.setForeground(color)
+            if wrap:
+                item.setTextAlignment(Qt.AlignLeft | Qt.AlignTop)
             self.table.setItem(row, col, item)
 
         color = SIGNAL_COLORS.get(result.signal)
@@ -407,8 +456,9 @@ class MainWindow(QMainWindow):
         set_cell(3, f"{result.stop_loss:.5f}" if result.stop_loss is not None else "-")
         set_cell(4, f"{result.take_profit:.5f}" if result.take_profit is not None else "-")
         set_cell(5, f"{result.risk_reward:.2f}" if result.risk_reward else "-")
-        set_cell(6, result.reason or "")
+        set_cell(6, result.reason or "", wrap=True)
         set_cell(7, now_str)
+        self.table.resizeRowToContents(row)
 
     def _load_history_into_table(self):
         rows = self.db.get_history(limit=200)
@@ -431,7 +481,10 @@ class MainWindow(QMainWindow):
                 color = SIGNAL_COLORS.get(r["signal"])
                 if color and col == 1:
                     item.setForeground(color)
+                if col == 6:
+                    item.setTextAlignment(Qt.AlignLeft | Qt.AlignTop)
                 self.history_table.setItem(row_idx, col, item)
+            self.history_table.resizeRowToContents(row_idx)
 
     def closeEvent(self, event):
         self.timer.stop()

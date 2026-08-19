@@ -96,3 +96,18 @@ class MT5Connector:
         if tick is None:
             raise RuntimeError(f"Could not fetch current tick for '{symbol}'.")
         return (tick.bid + tick.ask) / 2.0
+
+    def get_all_symbols(self) -> List[str]:
+        """Returns every symbol available in the connected MT5 terminal's
+        Market Watch/broker symbol list (e.g. all forex pairs, indices,
+        metals, etc.), sorted alphabetically."""
+        if not MT5_AVAILABLE:
+            raise RuntimeError("MetaTrader5 package not available on this platform.")
+        if not self.connected:
+            raise RuntimeError("Not connected to MT5. Call connect() first.")
+
+        symbols = mt5.symbols_get()
+        if symbols is None:
+            code, desc = mt5.last_error()
+            raise RuntimeError(f"Could not fetch symbol list (error {code}: {desc}).")
+        return sorted(s.name for s in symbols)
