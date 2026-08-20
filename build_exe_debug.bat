@@ -15,7 +15,9 @@ python -m pip install pyinstaller
 echo Building CRT_Signal_Scanner_debug.exe (console enabled) ...
 python -m PyInstaller --noconfirm --onefile ^
     --name CRT_Signal_Scanner_debug ^
+    --clean ^
     --collect-all MetaTrader5 ^
+    --collect-all numpy ^
     main.py
 
 echo.
