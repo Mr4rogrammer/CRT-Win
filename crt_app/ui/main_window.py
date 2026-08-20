@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..database import Database
-from ..engine import analyze_symbols
+from ..engine import analyze_symbols, analyze_symbol
 from ..mt5_connector import MT5Connector, MT5_AVAILABLE, TIMEFRAME_MAP
 from .symbol_picker import SymbolPickerDialog
 from .signal_card import SignalCard, SIGNAL_SORT_PRIORITY
@@ -41,6 +41,7 @@ class RefreshWorker(QObject):
     """Runs MT5 fetch + CRT evaluation off the UI thread."""
     finished = Signal(list)
     failed = Signal(str)
+    progress = Signal(int, int, str)  # done_count, total_count, current_symbol
 
     def __init__(self, connector: MT5Connector, symbols, threshold_pct: float = 0.5, timeframe: str = "D1"):
         super().__init__()
@@ -53,10 +54,16 @@ class RefreshWorker(QObject):
         try:
             if not self.connector.connected:
                 self.connector.connect()
-            results = analyze_symbols(
-                self.connector, self.symbols,
-                threshold_pct=self.threshold_pct, timeframe=self.timeframe,
-            )
+            results = []
+            total = len(self.symbols)
+            for i, symbol in enumerate(self.symbols):
+                self.progress.emit(i, total, symbol)
+                result = analyze_symbol(
+                    self.connector, symbol,
+                    threshold_pct=self.threshold_pct, timeframe=self.timeframe,
+                )
+                results.append(result)
+            self.progress.emit(total, total, "")
             self.finished.emit(results)
         except Exception as exc:  # noqa: BLE001
             self.failed.emit(str(exc))
@@ -496,12 +503,20 @@ class MainWindow(QMainWindow):
         )
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
+        self._worker.progress.connect(self._on_refresh_progress)
         self._worker.finished.connect(self._on_refresh_finished)
         self._worker.failed.connect(self._on_refresh_failed)
         self._worker.finished.connect(self._thread.quit)
         self._worker.failed.connect(self._thread.quit)
         self._thread.finished.connect(self._cleanup_thread)
         self._thread.start()
+
+    def _on_refresh_progress(self, done: int, total: int, symbol: str):
+        if done >= total:
+            self.status_label.setText(f"Processing {total} results...")
+        else:
+            self.status_label.setText(f"Fetching {symbol} ({done + 1}/{total})...")
+        self.status_label.setStyleSheet("color: #4c8bf5;")
 
     def _cleanup_thread(self):
         self.refresh_btn.setEnabled(True)

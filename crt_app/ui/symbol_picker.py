@@ -13,7 +13,14 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QPushButton,
     QDialogButtonBox,
+    QMessageBox,
 )
+
+# Fetching candles from MT5 is done one symbol at a time (the MT5 API has no
+# bulk-fetch), so watchlists with hundreds of symbols make each refresh take
+# a very long time and can make the app appear frozen/unresponsive. Warn the
+# user before they commit to a huge selection.
+RECOMMENDED_MAX_SYMBOLS = 30
 
 
 class SymbolPickerDialog(QDialog):
@@ -51,8 +58,14 @@ class SymbolPickerDialog(QDialog):
         layout.addWidget(self.list_widget)
         self._populate_list()
 
+        self.selection_count_label = QLabel()
+        self.selection_count_label.setStyleSheet("color: #9aa1ac;")
+        layout.addWidget(self.selection_count_label)
+        self.list_widget.itemChanged.connect(self._update_selection_count)
+        self._update_selection_count()
+
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(self.accept)
+        buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
@@ -76,6 +89,36 @@ class SymbolPickerDialog(QDialog):
             item = self.list_widget.item(row)
             if not item.isHidden():
                 item.setCheckState(state)
+
+    def _update_selection_count(self, *_args):
+        count = len(self.selected_symbols())
+        if count > RECOMMENDED_MAX_SYMBOLS:
+            self.selection_count_label.setText(
+                f"{count} selected \u2014 large watchlists slow down refresh "
+                f"(recommended: {RECOMMENDED_MAX_SYMBOLS} or fewer)."
+            )
+            self.selection_count_label.setStyleSheet("color: #f0ad4e;")
+        else:
+            self.selection_count_label.setText(f"{count} selected.")
+            self.selection_count_label.setStyleSheet("color: #9aa1ac;")
+
+    def _on_accept(self):
+        count = len(self.selected_symbols())
+        if count > RECOMMENDED_MAX_SYMBOLS:
+            proceed = QMessageBox.question(
+                self,
+                "Large Watchlist",
+                f"You've selected {count} symbols. MT5 fetches candles one "
+                "symbol at a time, so refreshing this many pairs can take a "
+                "long time and may make the app feel frozen/unresponsive.\n\n"
+                f"Recommended: {RECOMMENDED_MAX_SYMBOLS} or fewer for smooth "
+                "auto-refresh.\n\nContinue anyway?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if proceed != QMessageBox.Yes:
+                return
+        self.accept()
 
     def selected_symbols(self) -> Set[str]:
         """Returns the set of symbols that ended up checked when OK was pressed."""
